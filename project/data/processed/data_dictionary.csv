@@ -1,0 +1,16 @@
+nom_technique,definition_metier,type_donnee,unite,source,regle_qualite,data_owner,commentaire_vigilance
+mois,Mois d'observation RH agregee,date,AAAA-MM-JJ,workforce/recruitment/skills,date valide et non nulle,People Analytics,Ne pas interpreter comme donnees journalieres
+site,Localisation du collectif,texte,nom de site,workforce/recruitment,libelle normalise,RH Operations,Variantes de casse harmonisees
+equipe,Identifiant d'equipe agregee,entier,id equipe,workforce/skills,non nul apres nettoyage,HRIS,Pas un identifiant collaborateur
+metier,Famille de metier,texte,categorie,workforce/reference/recruitment,libelle normalise,Workforce Planning,Regroupement large
+effectif_reel,Effectif observe du collectif,numerique,personnes,workforce,valeur positive ou nulle,HRIS,Agrege equipe/site/metier
+effectif_planifie,Effectif cible issu du plan RH,numerique,personnes,workforce,valeur positive ou nulle,Workforce Planning,Peut varier selon budget
+ecart_effectif,Difference effectif reel - planifie,numerique,personnes,calcule,coherence avec effectifs,People Analytics,Negatif signifie sous-effectif
+taux_attrition,Depart volontaires rapportes a l'effectif reel,numerique,ratio 0-1,calcule,borne entre 0 et 1,People Analytics,Ne pas utiliser pour scorer un individu
+departs_volontaires,Volume de departs volontaires du collectif,numerique,personnes,workforce,borne par l'effectif reel,HRIS,Volume agrege uniquement
+recrutements_ouverts,Nombre de postes ouverts,numerique,postes,recruitment,valeur positive ou nulle,Talent Acquisition,Peut etre manquant pour certains collectifs
+tension_recrutement,"Indice combine postes ouverts, delai et acceptation offres",numerique,score 0-1,calcule,borne entre 0 et 1,Talent Acquisition,Indicateur d'aide au pilotage
+competences_critiques_disponibles,Nombre de personnes disponibles sur competences critiques,numerique,personnes,skills,valeur positive ou nulle,Learning & Skills,Depend de la qualite du referentiel skills
+couverture_competences_critiques,Ratio disponibilites / besoins de competences critiques,numerique,ratio 0-1,skills/calcule,borne entre 0 et 1,Learning & Skills,Une couverture faible appelle une analyse collective
+indicateur_risque_collectif,Indice synthetique de risque RH collectif,numerique,score 0-1,calcule,borne entre 0 et 1,People Analytics,Aucune decision automatisee individuelle
+role_critique,Indique si la famille metier est critique,booleen,0/1,reference,valeurs 0 ou 1,Workforce Planning,Criticite au niveau metier

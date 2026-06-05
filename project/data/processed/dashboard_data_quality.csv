@@ -1,0 +1,5 @@
+fichier,lignes,colonnes,valeurs_manquantes,doublons,incoherences_detectees,score_qualite_estime,regles_appliquees
+workforce_BIG.csv,8000,11,0,0,8541,0.0,"normalisation libelles, conversion dates, bornage KPI, agregation equipe/site/metier"
+reference_BIG.csv,4,2,0,0,0,100.0,"normalisation libelles, conversion dates, bornage KPI, agregation equipe/site/metier"
+skills_BIG.csv,8000,5,0,1,0,99.8,"normalisation libelles, conversion dates, bornage KPI, agregation equipe/site/metier"
+recruitment_BIG.csv,8000,6,0,0,3788,0.0,"normalisation libelles, conversion dates, bornage KPI, agregation equipe/site/metier"

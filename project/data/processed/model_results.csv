@@ -1,0 +1,4 @@
+modele,MAE,RMSE,R2,usage
+Baseline moyenne train,15.735,18.854,-0.004,"Prevision agregee des volumes de departs volontaires, jamais scoring individuel"
+Regression lineaire,14.389,17.249,0.16,"Prevision agregee des volumes de departs volontaires, jamais scoring individuel"
+Random Forest,12.804,16.037,0.274,"Prevision agregee des volumes de departs volontaires, jamais scoring individuel"
