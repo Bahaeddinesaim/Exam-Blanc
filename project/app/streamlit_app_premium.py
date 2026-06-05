@@ -3,9 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import quote
 from typing import Iterable
+from datetime import datetime
+from io import BytesIO
 
 import pandas as pd
 import streamlit as st
+try:
+    from fpdf import FPDF
+except Exception:
+    FPDF = None
 
 st.set_page_config(page_title="Dashboard RH", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
@@ -274,6 +280,186 @@ def render_forecast(df: pd.DataFrame, forecast_df: pd.DataFrame, model_df: pd.Da
     table_card("Tableau model_results","Scores de validation des modèles","📋",model_df,310)
     governance_card("Gouvernance du modèle","Ces prévisions sont agrégées et ne doivent jamais être utilisées pour scorer, classer ou sanctionner des collaborateurs individuellement.")
 
+
+def _pdf_clean(value) -> str:
+    """Keep PDF text compatible without crashing on accents/symbols."""
+    txt = str(value) if value is not None else ""
+    repl = {
+        "’": "'", "‘": "'", "“": '"', "”": '"', "–": "-", "—": "-",
+        "é": "e", "è": "e", "ê": "e", "ë": "e", "à": "a", "â": "a",
+        "î": "i", "ï": "i", "ô": "o", "ù": "u", "û": "u", "ç": "c",
+        "É": "E", "È": "E", "À": "A", "Ç": "C", "%": "%"
+    }
+    for a, b in repl.items():
+        txt = txt.replace(a, b)
+    return txt.encode("latin-1", "ignore").decode("latin-1")
+
+
+def _pdf_section(pdf, title: str) -> None:
+    pdf.ln(4)
+    pdf.set_font("Arial", "B", 14)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(0, 9, _pdf_clean(title), ln=True)
+    pdf.set_draw_color(79, 70, 229)
+    pdf.set_line_width(0.6)
+    pdf.line(12, pdf.get_y(), 198, pdf.get_y())
+    pdf.ln(4)
+
+
+def _pdf_kpi(pdf, label: str, value: str, note: str = "") -> None:
+    pdf.set_font("Arial", "B", 10)
+    pdf.set_text_color(100, 116, 139)
+    pdf.cell(56, 6, _pdf_clean(label), border=0)
+    pdf.set_font("Arial", "B", 13)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(38, 6, _pdf_clean(value), border=0)
+    pdf.set_font("Arial", "", 9)
+    pdf.set_text_color(100, 116, 139)
+    pdf.multi_cell(0, 6, _pdf_clean(note))
+
+
+def _df_preview_for_pdf(pdf, df: pd.DataFrame, title: str, max_rows: int = 8, max_cols: int = 5) -> None:
+    if df is None or df.empty:
+        return
+    _pdf_section(pdf, title)
+    preview = df.copy().head(max_rows)
+    preview = preview[[c for c in preview.columns[:max_cols]]]
+    pdf.set_font("Arial", "B", 8)
+    pdf.set_fill_color(241, 245, 249)
+    col_width = 186 / max(1, len(preview.columns))
+    for col in preview.columns:
+        pdf.cell(col_width, 7, _pdf_clean(col)[:22], border=1, fill=True)
+    pdf.ln()
+    pdf.set_font("Arial", "", 7)
+    for _, row in preview.iterrows():
+        for col in preview.columns:
+            pdf.cell(col_width, 6, _pdf_clean(row[col])[:22], border=1)
+        pdf.ln()
+    pdf.ln(2)
+
+
+def generate_pdf_report(gold_df: pd.DataFrame, quality_df: pd.DataFrame, analytics_df: pd.DataFrame, forecast_df: pd.DataFrame, model_df: pd.DataFrame) -> bytes:
+    """Generate a complete aggregated HR report as PDF bytes for Streamlit download."""
+    if FPDF is None:
+        raise RuntimeError("La librairie fpdf2 n'est pas installee. Ajoute `fpdf2` dans requirements.txt.")
+
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=14)
+    pdf.add_page()
+
+    # Cover
+    pdf.set_fill_color(7, 21, 46)
+    pdf.rect(0, 0, 210, 48, style="F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", "B", 24)
+    pdf.set_xy(12, 14)
+    pdf.cell(0, 10, _pdf_clean("Rapport Final - Dashboard RH"), ln=True)
+    pdf.set_font("Arial", "", 12)
+    pdf.set_x(12)
+    pdf.cell(0, 8, _pdf_clean("Pilotage & Analyse des Ressources Humaines - Donnees agregees uniquement"), ln=True)
+    pdf.set_text_color(100, 116, 139)
+    pdf.set_font("Arial", "", 10)
+    pdf.set_xy(12, 55)
+    pdf.multi_cell(0, 6, _pdf_clean(
+        "Ce rapport synthetise les indicateurs RH collectifs issus de la DATA GOLD : effectifs, attrition, tension recrutement, qualite des donnees, analyses RH et forecast. "
+        "Il ne doit jamais etre utilise pour scorer, classer ou automatiser une decision individuelle sur un collaborateur."
+    ))
+
+    latest = pd.DataFrame()
+    previous = pd.DataFrame()
+    if gold_df is not None and not gold_df.empty and "mois" in gold_df.columns:
+        df = gold_df.copy()
+        df["mois"] = pd.to_datetime(df["mois"], errors="coerce")
+        lm = df["mois"].max()
+        pm = df.loc[df["mois"] < lm, "mois"].max()
+        latest = df[df["mois"] == lm].copy()
+        previous = df[df["mois"] == pm].copy() if pd.notna(pm) else pd.DataFrame()
+
+    _pdf_section(pdf, "1. Executive Summary")
+    if not latest.empty:
+        effectif_reel = latest["effectif_reel"].sum() if "effectif_reel" in latest.columns else 0
+        effectif_plan = latest["effectif_planifie"].sum() if "effectif_planifie" in latest.columns else 0
+        ecart = effectif_reel - effectif_plan
+        departs = latest["departs_volontaires"].sum() if "departs_volontaires" in latest.columns else 0
+        attrition = departs / max(effectif_reel, 1)
+        tension = latest["tension_recrutement"].mean() if "tension_recrutement" in latest.columns else 0
+        _pdf_kpi(pdf, "Effectif reel", fmt_int(effectif_reel), "Population observee")
+        _pdf_kpi(pdf, "Effectif planifie", fmt_int(effectif_plan), "Cible workforce planning")
+        _pdf_kpi(pdf, "Ecart effectif", fmt_int(ecart), "Reel moins planifie")
+        _pdf_kpi(pdf, "Taux attrition", fmt_pct(attrition), "Departs volontaires / effectif reel")
+        _pdf_kpi(pdf, "Departs volontaires", fmt_int(departs), "Volume agrege")
+        _pdf_kpi(pdf, "Tension globale", fmt_num(tension), "Indice moyen de recrutement")
+    else:
+        pdf.multi_cell(0, 6, _pdf_clean("DATA GOLD indisponible ou colonne mois manquante."))
+
+    _pdf_section(pdf, "2. Data Quality")
+    if quality_df is not None and not quality_df.empty:
+        score = safe_col(quality_df, "score_qualite_estime").mean() if "score_qualite_estime" in quality_df.columns else 0
+        missing = safe_col(quality_df, "valeurs_manquantes").sum() if "valeurs_manquantes" in quality_df.columns else 0
+        duplicates = safe_col(quality_df, "doublons").sum() if "doublons" in quality_df.columns else 0
+        issues = safe_col(quality_df, "incoherences_detectees").sum() if "incoherences_detectees" in quality_df.columns else 0
+        _pdf_kpi(pdf, "Score qualite", f"{score:.1f}/100", "Score estime apres controles")
+        _pdf_kpi(pdf, "Valeurs manquantes", fmt_int(missing), "Controle exhaustivite")
+        _pdf_kpi(pdf, "Doublons", fmt_int(duplicates), "Controle unicite")
+        _pdf_kpi(pdf, "Incoherences", fmt_int(issues), "Regles metier")
+    else:
+        pdf.multi_cell(0, 6, _pdf_clean("Fichier dashboard_data_quality.csv indisponible."))
+
+    _pdf_section(pdf, "3. RH Analytics")
+    if not latest.empty:
+        equipes = latest["equipe"].nunique() if "equipe" in latest.columns else len(latest)
+        sites = latest["site"].nunique() if "site" in latest.columns else 0
+        couverture = latest["couverture_competences_critiques"].mean() if "couverture_competences_critiques" in latest.columns else 0
+        risque = latest["indicateur_risque_collectif"].mean() if "indicateur_risque_collectif" in latest.columns else 0
+        _pdf_kpi(pdf, "Equipes analysees", fmt_int(equipes), "Collectifs actifs")
+        _pdf_kpi(pdf, "Sites observes", fmt_int(sites), "Perimetre multi-site")
+        _pdf_kpi(pdf, "Couverture skills", fmt_pct(couverture), "Competences critiques")
+        _pdf_kpi(pdf, "Risque moyen", fmt_num(risque), "Indice collectif")
+
+    _pdf_section(pdf, "4. Forecast")
+    if model_df is not None and not model_df.empty:
+        best = model_df.sort_values("MAE").iloc[0] if "MAE" in model_df.columns else model_df.iloc[0]
+        predicted = safe_col(forecast_df, "prediction_retenue").sum() if forecast_df is not None and "prediction_retenue" in forecast_df.columns else 0
+        _pdf_kpi(pdf, "Departs prevus", fmt_int(predicted), "Volume agrege prevu")
+        _pdf_kpi(pdf, "Meilleur modele", best.get("modele", "-"), "Selection selon performance")
+        _pdf_kpi(pdf, "MAE", fmt_num(best.get("MAE", 0)), "Erreur moyenne absolue")
+        _pdf_kpi(pdf, "RMSE", fmt_num(best.get("RMSE", 0)), "Erreur quadratique moyenne")
+    else:
+        pdf.multi_cell(0, 6, _pdf_clean("Fichier model_results.csv indisponible."))
+
+    _df_preview_for_pdf(pdf, quality_df, "Annexe A - Apercu Data Quality")
+    _df_preview_for_pdf(pdf, analytics_df, "Annexe B - Apercu RH Analytics")
+    _df_preview_for_pdf(pdf, model_df, "Annexe C - Resultats Modeles")
+
+    _pdf_section(pdf, "5. Gouvernance et usage responsable")
+    pdf.set_font("Arial", "", 10)
+    pdf.set_text_color(15, 23, 42)
+    pdf.multi_cell(0, 6, _pdf_clean(
+        "Les analyses et previsions presentees sont strictement agregees aux niveaux equipe, site et metier. "
+        "Le dashboard et le modele ne doivent pas etre utilises pour noter, classer, sanctionner ou automatiser une decision individuelle. "
+        "Les resultats doivent etre interpretes comme une aide au pilotage RH, avec validation humaine et prise en compte du contexte metier."
+    ))
+
+    out = pdf.output(dest="S")
+    if isinstance(out, str):
+        return out.encode("latin-1")
+    return bytes(out)
+
+
+def render_pdf_export_button() -> None:
+    try:
+        pdf_bytes = generate_pdf_report(gold, quality, analytics, forecast, model_results)
+        st.download_button(
+            label="📄 Exporter le rapport complet en PDF",
+            data=pdf_bytes,
+            file_name=f"rapport_dashboard_rh_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception as exc:
+        st.warning(f"Export PDF indisponible : {exc}")
+
+
 def main() -> None:
     inject_css()
     if gold.empty:
@@ -284,6 +470,7 @@ def main() -> None:
     trimestre,perimetre,site=render_filters(gold); view=gold.copy()
     if site!="Tous" and "site" in view.columns: view=view[view["site"].astype(str)==site].copy()
     render_header(latest_month,trimestre,perimetre,site)
+    render_pdf_export_button()
     if page=="Executive": render_executive(view,forecast)
     elif page=="Data Quality": render_data_quality(view,quality)
     elif page=="RH Analytics": render_rh_analytics(view,analytics)
